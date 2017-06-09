@@ -35,6 +35,7 @@ func (h *Handler) SetRoutes(r *httprouter.Router) {
 	r.GET(ClientsHandlerPath+"/:id", h.Get)
 	r.PUT(ClientsHandlerPath+"/:id", h.Update)
 	r.DELETE(ClientsHandlerPath+"/:id", h.Delete)
+	r.POST(ClientsHandlerPath+"/:id/cycle", h.CycleClientSecret)
 }
 
 // swagger:route POST /clients oauth2 clients createOAuthClient
@@ -203,6 +204,87 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	}
 
 	h.H.WriteCreated(w, r, ClientsHandlerPath+"/"+c.GetID(), &c)
+}
+
+// swagger:route POST /clients/{id}/cycle oauth2 clients cycleOAuthClientSecret
+//
+// Cycles an OAuth 2.0 Client Secret
+//
+// This will both cycle the client secret and invalidate any associated tokens
+//
+// The subject making the request needs to be assigned to a policy containing:
+//
+//  ```
+//  {
+//    "resources": ["rn:hydra:clients"],
+//    "actions": ["update"],
+//    "effect": "allow"
+//  }
+//  ```
+//
+//  Additionally, the context key "owner" is set to the owner of the client, allowing policies such as:
+//
+//  ```
+//  {
+//    "resources": ["rn:hydra:clients"],
+//    "actions": ["update"],
+//    "effect": "allow",
+//    "conditions": { "owner": { "type": "EqualsSubjectCondition" } }
+//  }
+//  ```
+//
+//     Consumes:
+//     - application/json
+//
+//     Produces:
+//     - application/json
+//
+//     Schemes: http, https
+//
+//     Security:
+//       oauth2: hydra.clients
+//
+//     Responses:
+//       200: oauthClient
+//       401: genericError
+//       403: genericError
+//       500: genericError
+func (h *Handler) CycleClientSecret(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var c Client
+	var ctx = r.Context()
+
+	o, err := h.Manager.GetConcreteClient(ps.ByName("id"))
+	if err != nil {
+		h.H.WriteError(w, r, err)
+		return
+	}
+
+	if _, err := h.W.TokenAllowed(ctx, h.W.TokenFromRequest(r), &firewall.TokenAccessRequest{
+		Resource: ClientsResource,
+		Action:   "update",
+		Context: ladon.Context{
+			"owner": o.Owner,
+		},
+	}, Scope); err != nil {
+		h.H.WriteError(w, r, err)
+		return
+	}
+
+	secret, err := sequence.RuneSequence(12, []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_-.,:;$%!&/()=?+*#<>"))
+	if err != nil {
+		h.H.WriteError(w, r, errors.WithStack(err))
+		return
+	}
+	c.Secret = string(secret)
+
+	secret := c.Secret
+	if err := h.Manager.UpdateClient(&c); err != nil {
+		h.H.WriteError(w, r, err)
+		return
+	}
+
+	c.Secret = secret
+	h.H.WriteCreated(w, r, ClientsHandlerPath+"/"+c.GetID()+"/cycle", &c)
 }
 
 // swagger:route GET /clients oauth2 clients listOAuthClients
