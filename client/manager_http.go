@@ -44,14 +44,6 @@ func (m *HTTPManager) UpdateClient(c *Client) error {
 	return r.Update(c)
 }
 
-func (m *HTTPManager) CycleClientSecret(c *Client) error {
-	var r = pkg.NewSuperAgent(pkg.JoinURL(m.Endpoint, c.ID).String())
-	r.Client = m.Client
-	r.Dry = m.Dry
-	r.FakeTLSTermination = m.FakeTLSTermination
-	return r.CycleClientSecret(c)
-}
-
 func (m *HTTPManager) CreateClient(c *Client) error {
 	var r = pkg.NewSuperAgent(m.Endpoint.String())
 	r.Client = m.Client
